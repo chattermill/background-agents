@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 from unittest.mock import MagicMock
@@ -9,7 +10,13 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
-from sandbox_runtime.harness.opencode_client import McpInitializationUnavailable, OpenCodeClient
+from sandbox_runtime.harness.opencode_client import (
+    McpInitializationUnavailable,
+    OpenCodeClient,
+    SSEConnectionError,
+    SSEInactivityTimeoutError,
+    SSEStreamDisconnectedError,
+)
 
 BASE = "http://localhost:4096"
 
@@ -129,3 +136,62 @@ async def test_events_stream_from_api_event():
         received = [event["type"] async for event in events]
     assert received == ["server.connected", "session.execution.started"]
     assert seen[0].url.path == "/api/event"
+
+
+async def test_session_active_reads_the_running_sessions():
+    client, seen = make_client(
+        lambda _r: httpx.Response(200, json={"data": {"ses_1": {"type": "running"}}})
+    )
+    assert await client.session_active("ses_1")
+    assert not await client.session_active("ses_2")
+    assert seen[0].url.path == "/api/session/active"
+
+
+async def test_events_reassemble_a_frame_split_across_chunks():
+    async def chunks():
+        yield b'data: {"ty'
+        yield b'pe":"session.execution.started","data":{}}\n'
+        yield b"\n"
+
+    client, _ = make_client(
+        lambda _r: httpx.Response(
+            200, content=chunks(), headers={"content-type": "text/event-stream"}
+        )
+    )
+    async with client.events(inactivity_timeout_seconds=5.0) as events:
+        received = [event["type"] async for event in events]
+    assert received == ["session.execution.started"]
+
+
+async def test_events_rejected_handshake_is_a_connection_error():
+    client, _ = make_client(lambda _r: httpx.Response(401, text="unauthorized"))
+    with pytest.raises(SSEConnectionError) as raised:
+        async with client.events(inactivity_timeout_seconds=5.0):
+            pass
+    assert not isinstance(raised.value, SSEStreamDisconnectedError)
+
+
+async def test_events_transport_failure_is_a_disconnect():
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("refused", request=request)
+
+    client, _ = make_client(handler)
+    with pytest.raises(SSEStreamDisconnectedError):
+        async with client.events(inactivity_timeout_seconds=5.0):
+            pass
+
+
+async def test_events_silence_is_an_inactivity_timeout():
+    async def silent():
+        yield b": heartbeat\n\n"
+        await asyncio.Event().wait()
+
+    client, _ = make_client(
+        lambda _r: httpx.Response(
+            200, content=silent(), headers={"content-type": "text/event-stream"}
+        )
+    )
+    with pytest.raises(SSEInactivityTimeoutError):
+        async with client.events(inactivity_timeout_seconds=0.2) as events:
+            async for _event in events:
+                pass

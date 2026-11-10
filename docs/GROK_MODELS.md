@@ -85,9 +85,9 @@ the endpoint rejects user and service credentials in favor of the matching sessi
 
 ## Deployment and Rollout
 
-The provider-auth plugin is part of `packages/sandbox-runtime`. Before rollout, rebuild
-**every** sandbox runtime image, template, and provider snapshot. Existing images do not gain the
-generic provider-auth endpoint merely because the control plane was deployed.
+The provider-auth plugin is part of `packages/sandbox-runtime`. Before rollout, rebuild **every**
+sandbox runtime image, template, and provider snapshot. Existing images do not gain the generic
+provider-auth endpoint merely because the control plane was deployed.
 
 Before production rollout, run a staging session with an eligible SuperGrok account and verify:
 

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import pwd
@@ -130,14 +131,27 @@ class Probe:
                 for process in reversed(processes):
                     stop_process(process)
 
-    def service(self, command: list[str], path: str = "/", *, websocket_rfb: bool = False) -> None:
+    def service(
+        self,
+        command: list[str],
+        path: str = "/",
+        *,
+        websocket_rfb: bool = False,
+        basic_auth: tuple[str, str] | None = None,
+        env: dict[str, str] | None = None,
+    ) -> None:
+        headers = {}
+        if basic_auth is not None:
+            token = base64.b64encode(":".join(basic_auth).encode()).decode()
+            headers["Authorization"] = f"Basic {token}"
+        options = self.options | {"env": self.environment | (env or {})}
         with socket.socket() as listener:
             listener.bind(("127.0.0.1", 0))
             port = listener.getsockname()[1]
         command = [arg.replace("{port}", str(port)) for arg in command]
         with tempfile.TemporaryFile(mode="w+") as output:
             process = subprocess.Popen(
-                command, stdout=output, stderr=output, start_new_session=True, **self.options
+                command, stdout=output, stderr=output, start_new_session=True, **options
             )
             try:
                 deadline = time.monotonic() + 60
@@ -148,9 +162,10 @@ class Probe:
                             f"Image service exited: {command[0]}: {output.read()[-2000:]}"
                         )
                     try:
-                        with urllib.request.urlopen(
-                            f"http://127.0.0.1:{port}{path}", timeout=1
-                        ) as response:
+                        request = urllib.request.Request(
+                            f"http://127.0.0.1:{port}{path}", headers=headers
+                        )
+                        with urllib.request.urlopen(request, timeout=1) as response:
                             if response.status == 200:
                                 if websocket_rfb:
                                     verify_rfb_proxy(port)
@@ -316,8 +331,13 @@ def inspect_image(plan: dict[str, Any], tools: dict[str, Any], *, services: bool
     if services:
         probe.run(["python3", "-c", PNPM_GLOBAL_PROBE])
         probe.desktop()
-        # The OpenCode 2 API requires a password, but its web shell answers unauthenticated.
-        probe.service(["opencode", "serve", "--hostname", "127.0.0.1", "--port", "{port}"])
+        # The runtime's readiness route, behind the password OpenCode 2's API requires.
+        probe.service(
+            ["opencode", "serve", "--hostname", "127.0.0.1", "--port", "{port}"],
+            "/api/mcp",
+            basic_auth=("opencode", "smoke-test"),
+            env={"OPENCODE_SERVER_PASSWORD": "smoke-test"},
+        )
         probe.service(
             [
                 "code-server",

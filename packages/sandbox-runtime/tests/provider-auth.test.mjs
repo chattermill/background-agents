@@ -30,7 +30,10 @@ test("asks the session's token broker with the sandbox token", async () => {
   });
   const token = await fetchAccessToken("openai", "OpenAI", ENV, fetchImpl);
   assert.deepEqual(token, { accessToken: "access-1", expiresIn: 600, accountId: "acct-1" });
-  assert.equal(calls[0].url, "https://cp.example/sessions/session-1/provider-auth/openai/access-token");
+  assert.equal(
+    calls[0].url,
+    "https://cp.example/sessions/session-1/provider-auth/openai/access-token"
+  );
   assert.equal(calls[0].init.method, "POST");
   assert.equal(calls[0].init.headers.Authorization, "Bearer sandbox-token");
 });
@@ -66,7 +69,12 @@ test("stores the brokered token with the placeholder refresh and the account", (
     expires: 61_000,
     metadata: { other: "kept", accountID: "acct-2" },
   });
-  const xai = brokeredCredential({}, "device", { accessToken: "a", expiresIn: 1, accountId: null }, 0);
+  const xai = brokeredCredential(
+    {},
+    "device",
+    { accessToken: "a", expiresIn: 1, accountId: null },
+    0
+  );
   assert.equal("metadata" in xai, false);
 });
 

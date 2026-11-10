@@ -51,7 +51,7 @@ export async function fetchAccessToken(provider, label, env = process.env, fetch
     throw new Error(`Missing environment for ${label} token refresh`);
   }
   const response = await fetchImpl(
-    `${controlPlaneUrl}/sessions/${session}/provider-auth/${provider}/access-token`,
+    `${controlPlaneUrl}/sessions/${encodeURIComponent(session)}/provider-auth/${provider}/access-token`,
     {
       method: "POST",
       headers: { Authorization: `Bearer ${authToken}` },

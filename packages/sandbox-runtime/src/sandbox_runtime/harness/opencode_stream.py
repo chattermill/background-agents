@@ -173,6 +173,7 @@ class OpenCodePromptStream:
             async with AsyncExitStack() as stack:
                 try:
                     async with asyncio.timeout(prompt_deadline - loop.time()):
+                        await self._settle_previous_execution(opencode_session_id)
                         await self._select_model(opencode_session_id, model, reasoning_effort)
                         events = await stack.enter_async_context(
                             self._client.events(
@@ -255,6 +256,22 @@ class OpenCodePromptStream:
                 "OpenCode event stream disconnected before completion; "
                 "partial output was preserved when available."
             ) from error
+
+    async def _settle_previous_execution(self, opencode_session_id: str) -> None:
+        """Interrupt an execution an earlier prompt left running, and wait until it stops.
+
+        A prompt whose stream disconnected or timed out can leave its execution
+        running. Its terminal event would otherwise end the next prompt's
+        stream, and its output would be attributed to the next prompt.
+        """
+        if not await self._client.session_active(opencode_session_id):
+            return
+        self._log.warn("bridge.previous_execution_running")
+        await self._client.request_stop(opencode_session_id, reason="previous_execution")
+        if not await self._client.wait_until_idle(
+            timeout_seconds=self._prompt_cleanup_timeout_seconds
+        ):
+            raise RuntimeError("The previous OpenCode execution did not stop")
 
     async def _late_session_title(
         self, state: _PromptState, iterator: AsyncIterator[dict[str, Any]]

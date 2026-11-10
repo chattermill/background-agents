@@ -50,8 +50,14 @@ class FakeClient:
         then: str | None = None,
         messages: list[dict[str, Any]] | None = None,
         variants: dict[tuple[str, str], list[str]] | None = None,
+        running: bool = False,
+        stops_cleanly: bool = True,
     ) -> None:
         self._events = events
+        # An execution an earlier prompt left running.
+        self.running = running
+        self._stops_cleanly = stops_cleanly
+        self.calls: list[str] = []
         self._disconnect_after = disconnect_after
         # After the scripted events: "inactive" times the stream out, "hang" never ends it.
         self._then = then
@@ -76,7 +82,17 @@ class FakeClient:
         yield iterate()
 
     async def post_prompt(self, session_id: str, body: dict[str, Any]) -> None:
+        self.calls.append("prompt")
         self.prompts.append(body)
+
+    async def session_active(self, session_id: str) -> bool:
+        return self.running
+
+    async def wait_until_idle(self, *, timeout_seconds: float) -> bool:
+        self.calls.append("idle")
+        if self._stops_cleanly:
+            self.running = False
+        return not self.running
 
     async def model_variants(self, provider_id: str, model_id: str) -> list[str] | None:
         return self._variants.get((provider_id, model_id))
@@ -85,6 +101,7 @@ class FakeClient:
         self.selected.append(model)
 
     async def request_stop(self, session_id: str | None, *, reason: str) -> bool:
+        self.calls.append("stop")
         self.stops.append(reason)
         return True
 
@@ -360,3 +377,19 @@ async def test_stalled_turn_is_interrupted_and_keeps_its_reply(then, reason, mes
             events.append(event)
     assert client.stops == [reason]
     assert [e["content"] for e in of_type(events, "token")] == ["so far"]
+
+
+async def test_an_execution_left_running_is_stopped_before_the_next_prompt():
+    events = recorded("shell_and_text")
+    client = FakeClient(events, running=True)
+    await run(make_stream(client), root_session(events))
+    assert client.calls[:3] == ["stop", "idle", "prompt"]
+    assert client.stops[0] == "previous_execution"
+
+
+async def test_a_prompt_is_not_sent_while_the_previous_execution_runs():
+    events = recorded("shell_and_text")
+    client = FakeClient(events, running=True, stops_cleanly=False)
+    with pytest.raises(RuntimeError, match="did not stop"):
+        await run(make_stream(client), root_session(events))
+    assert client.prompts == []

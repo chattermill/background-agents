@@ -189,3 +189,40 @@ async def test_no_credentials_are_seeded_without_a_managed_subscription(tmp_path
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         await make_server(tmp_path)._seed_managed_credentials(client)
+
+
+async def test_a_failed_credential_is_a_boot_warning_and_the_rest_are_seeded(tmp_path, monkeypatch):
+    for marker, _provider, _method in opencode_server.MANAGED_OAUTH_PROVIDERS:
+        monkeypatch.setenv(marker, "1")
+    created = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json={"data": []})
+        body = json.loads(request.content)
+        if body["integrationID"] == "openai":
+            return httpx.Response(500, text="boom")
+        created.append(body["integrationID"])
+        return httpx.Response(200, json={"data": {}})
+
+    server = make_server(tmp_path)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        await server._seed_managed_credentials(client)
+    assert created == ["xai"]
+    server.record_boot_warning.assert_called_once()
+    assert server.record_boot_warning.call_args.kwargs["scope"] == "managed_oauth"
+    assert "openai" in server.record_boot_warning.call_args.kwargs["message"]
+
+
+async def test_an_unreadable_credential_list_is_a_boot_warning(tmp_path, monkeypatch):
+    for marker, _provider, _method in opencode_server.MANAGED_OAUTH_PROVIDERS:
+        monkeypatch.setenv(marker, "1")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        return httpx.Response(503, json={"code": "service_starting"})
+
+    server = make_server(tmp_path)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        await server._seed_managed_credentials(client)
+    server.record_boot_warning.assert_called_once()

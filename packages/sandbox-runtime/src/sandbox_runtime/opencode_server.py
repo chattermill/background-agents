@@ -213,28 +213,44 @@ class OpenCodeServer:
         if not providers:
             return
         api = f"http://localhost:{OPENCODE_PORT}/api"
-        listing = await client.get(f"{api}/credential")
-        listing.raise_for_status()
-        existing = {entry.get("integrationID") for entry in listing.json().get("data", [])}
-        for provider, method in providers:
-            if provider in existing:
-                continue
-            response = await client.post(
-                f"{api}/credential",
-                json={
-                    "integrationID": provider,
-                    "label": "Open-Inspect managed subscription",
-                    "value": {
-                        "type": "oauth",
-                        "methodID": method,
-                        "refresh": MANAGED_REFRESH_PLACEHOLDER,
-                        "access": "",
-                        "expires": 0,
-                    },
-                },
+        # A failure only costs that subscription's models, so the session still boots.
+        try:
+            listing = await client.get(f"{api}/credential")
+            listing.raise_for_status()
+            existing = {entry.get("integrationID") for entry in listing.json().get("data", [])}
+        except httpx.HTTPError as error:
+            self.record_boot_warning(
+                scope="managed_oauth",
+                message=f"Could not list OpenCode credentials; subscriptions are unavailable: {error}",
             )
-            response.raise_for_status()
-        self.log.info("managed_oauth.setup", providers=[provider for provider, _ in providers])
+            return
+        seeded = []
+        for provider, method in providers:
+            if provider not in existing:
+                try:
+                    response = await client.post(
+                        f"{api}/credential",
+                        json={
+                            "integrationID": provider,
+                            "label": "Open-Inspect managed subscription",
+                            "value": {
+                                "type": "oauth",
+                                "methodID": method,
+                                "refresh": MANAGED_REFRESH_PLACEHOLDER,
+                                "access": "",
+                                "expires": 0,
+                            },
+                        },
+                    )
+                    response.raise_for_status()
+                except httpx.HTTPError as error:
+                    self.record_boot_warning(
+                        scope="managed_oauth",
+                        message=f"Could not set up the {provider} subscription: {error}",
+                    )
+                    continue
+            seeded.append(provider)
+        self.log.info("managed_oauth.setup", providers=seeded)
 
     def _resolve_mcp_servers(self) -> list[Mapping[str, Any]]:
         """Resolve MCP servers from session config."""

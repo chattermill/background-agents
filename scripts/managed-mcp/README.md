@@ -55,9 +55,9 @@ The OpenCode cancellation regression also needs only the Python environment and 
 It cancels a connect whose initialization is still pending, disconnects, then lets the
 initialization finish and reports whether the native server connected anyway (OpenCode 1.x did;
 2.2.5 stays disabled). Either way, the production wrapper must remain poisoned and refuse following
-turns after an uncertain prepare. The control
-plane also keeps delegation disabled for that allocation across bridge-only restarts; recovery
-requires replacing the sandbox/native server, not merely reconnecting its bridge.
+turns after an uncertain prepare. The control plane also keeps delegation disabled for that
+allocation across bridge-only restarts; recovery requires replacing the sandbox/native server, not
+merely reconnecting its bridge.
 
 ## Automated suites
 

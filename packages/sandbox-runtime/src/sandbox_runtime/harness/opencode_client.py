@@ -215,6 +215,12 @@ class OpenCodeClient:
             self._log.warn("bridge.stop_request_error", exc=e, reason=reason)
             return False
 
+    async def session_active(self, opencode_session_id: str) -> bool:
+        """Whether the session has an execution running (listed in ``/session/active``)."""
+        response = await self._client().get(f"{self._api}/session/active")
+        response.raise_for_status()
+        return opencode_session_id in (response.json().get("data") or {})
+
     async def wait_until_idle(self, *, timeout_seconds: float) -> bool:
         """Confirm no session in the server is running (an empty ``/session/active``)."""
         loop = asyncio.get_running_loop()
