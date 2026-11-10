@@ -447,6 +447,11 @@ async def test_opencode_gateway_efforts_reach_provider(wire_server):
         npm = (catalog[provider]["models"][model_id].get("provider") or {}).get("npm")
         sent, _ = submit(call, captured, model, None)
         assert sent["reasoning_effort"] is None, model
+        if npm == "@ai-sdk/google":
+            # OpenCode sends Gemini's high thinking level when no variant is
+            # chosen; the shared catalog records that as the default.
+            thinking = sent["generationConfig"]["thinkingConfig"]
+            assert thinking["thinkingLevel"] == "high", model
         for effort in efforts:
             sent, _ = submit(call, captured, model, effort)
             context = f"{model} {effort}"

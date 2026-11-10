@@ -84,10 +84,11 @@ OpenCode Zen models require `OPENCODE_API_KEY` as a global or repository secret.
 pay-per-token against `https://opencode.ai/zen/v1`.
 
 Reasoning efforts on Zen and Go models are the effort levels the models.dev catalog lists for each
-model. A model the catalog marks only as reasoning on or off, such as LongCat 2.0, has none. None of
-them has a default effort, so the gateway's own default applies unless the session has one. That
+model. A model the catalog marks only as reasoning on or off, such as LongCat 2.0, has none. Most
+have no default effort, so the gateway's own default applies unless the session has one. That
 includes an effort carried over from an earlier message, a saved Slack preference or a parent
-session, which is sent whenever the new model supports that level.
+session, which is sent whenever the new model supports that level. The Gemini models default to
+high, the thinking level OpenCode already sends for them when none is chosen.
 
 | Model ID                    | Display name     | Description   | Reasoning efforts | Default effort |
 | --------------------------- | ---------------- | ------------- | ----------------- | -------------- |
@@ -99,9 +100,9 @@ session, which is sent whenever the new model supports that level.
 | `opencode/glm-5`            | GLM 5            | Z.ai 744B MoE | Not supported     | N/A            |
 | `opencode/glm-5.1`          | GLM 5.1          | Z.ai          | Not supported     | N/A            |
 | `opencode/glm-5.2`          | GLM 5.2          | Z.ai          | high, max         | Not set        |
-| `opencode/gemini-4-carbon`  | Gemini 4 Carbon  | Google        | low, medium, high | Not set        |
-| `opencode/gemini-4-argon`   | Gemini 4 Argon   | Google        | low, medium, high | Not set        |
-| `opencode/gemini-3.8-flash` | Gemini 3.8 Flash | Google        | low, medium, high | Not set        |
+| `opencode/gemini-4-carbon`  | Gemini 4 Carbon  | Google        | low, medium, high | high           |
+| `opencode/gemini-4-argon`   | Gemini 4 Argon   | Google        | low, medium, high | high           |
+| `opencode/gemini-3.8-flash` | Gemini 3.8 Flash | Google        | low, medium, high | high           |
 
 ## OpenCode Go
 
@@ -127,7 +128,7 @@ that fails. That model is reachable as `opencode/minimax-m2.5` on Zen.
 | ------------------------------------------ | ---------------------------- | ----------------------------- | ----------------------------------- | -------------- |
 | `opencode-go/grok-4.6`                     | Grok 4.6                     | xAI                           | Not supported                       | N/A            |
 | `opencode-go/gpt-5.6-luna`                 | GPT 5.6 Luna                 | OpenAI                        | none, low, medium, high, xhigh, max | Not set        |
-| `opencode-go/gemini-4-argon`               | Gemini 4 Argon               | Google                        | low, medium, high                   | Not set        |
+| `opencode-go/gemini-4-argon`               | Gemini 4 Argon               | Google                        | low, medium, high                   | high           |
 | `opencode-go/glm-5.3-flash`                | GLM 5.3 Flash                | Z.ai                          | low, high, max                      | Not set        |
 | `opencode-go/glm-5.3`                      | GLM 5.3                      | Z.ai                          | low, high, max                      | Not set        |
 | `opencode-go/glm-5.2`                      | GLM 5.2                      | Z.ai                          | high, max                           | Not set        |
