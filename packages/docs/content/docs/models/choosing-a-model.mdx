@@ -217,7 +217,7 @@ Runs on OpenCode only. Opt-in group. Credential: `DEEPSEEK_API_KEY` as a global 
 
 ## The same model behind several gateways
 
-Some models appear more than once because they are reachable through more than one provider, each billed against a different credential. `opencode-go/grok-4.6` and `xai/grok-4.6` are the same Grok model behind two gateways. `opencode-go/glm-5.2`, `opencode/glm-5.2`, and `zai-coding-plan/glm-5.2` are the same GLM model behind three. `opencode/gemini-4-argon` and `opencode-go/gemini-4-argon` are the same Gemini model on Zen and Go. Pick the entry whose billing you want.
+Some models appear more than once because they are reachable through more than one provider, each billed differently. `opencode-go/grok-4.6` and `xai/grok-4.6` are the same Grok model behind two gateways. `opencode-go/glm-5.2`, `opencode/glm-5.2`, and `zai-coding-plan/glm-5.2` are the same GLM model behind three. `opencode/gemini-4-argon` and `opencode-go/gemini-4-argon` are the same Gemini model on Zen and Go: one `OPENCODE_API_KEY` serves both, billed per token on Zen and against the subscription allowance on Go. Pick the entry whose billing you want.
 
 ## Defaults for integrations and automations
 
