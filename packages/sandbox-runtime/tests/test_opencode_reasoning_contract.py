@@ -44,6 +44,9 @@ BINARY = os.environ.get("OPENCODE_TEST_BINARY")
 pytestmark = pytest.mark.skipif(not BINARY, reason="set OPENCODE_TEST_BINARY for wire tests")
 CATALOG = Path(__file__).parent / "fixtures/reasoning-models.json"
 OPENCODE_GATEWAYS = ("opencode", "opencode-go")
+# The agent-level effort the wire server configures; a prompt without a usable
+# variant falls back to it.
+AGENT_DEFAULT_EFFORT = "high"
 # Efforts the shared catalog offers on OpenCode Zen and Go, mirrored from
 # packages/shared/src/models.ts. Each must be a variant OpenCode derives for the
 # model; the field it lands in depends on the SDK the gateway routes the model to.
@@ -107,6 +110,7 @@ def openai_events(model):
 
 
 def chat_completion_events(model):
+    """Minimal OpenAI-compatible chat-completions stream that replies OK."""
     chunk = {"id": "chatcmpl_test", "object": "chat.completion.chunk", "created": 0, "model": model}
     return [
         {
@@ -222,7 +226,7 @@ async def wire_server(tmp_path, reasoning_config, request):
                 "_bridge-client.js",
             ):
                 shutil.copy(source / name, destination / name)
-        config["agent"] = {"build": {"options": {"reasoningEffort": "high"}}}
+        config["agent"] = {"build": {"options": {"reasoningEffort": AGENT_DEFAULT_EFFORT}}}
         for provider in ("openai", "anthropic", *OPENCODE_GATEWAYS):
             config["provider"].setdefault(provider, {})["options"] = {
                 "baseURL": f"http://127.0.0.1:{mock.server_port}/v1",
@@ -410,6 +414,7 @@ async def test_unsupported_request_options_do_not_override_defaults(wire_server)
 
 
 async def test_opencode_gateway_efforts_reach_provider(wire_server):
+    """Every catalog effort on a Zen or Go model reaches the gateway request."""
     call, captured = wire_server
     catalog = json.loads(CATALOG.read_text())
     fixture_models = {
@@ -427,6 +432,8 @@ async def test_opencode_gateway_efforts_reach_provider(wire_server):
             if npm == "@ai-sdk/openai":
                 assert sent["reasoning"]["effort"] == effort, context
             elif npm == "@ai-sdk/anthropic" and model_id == "qwen3.7-plus":
+                # Budget-only model: OpenCode (pinned in OPENCODE_VERSION) maps its
+                # high and max variants to these thinking budgets.
                 assert sent["thinking"] == {
                     "type": "enabled",
                     "budget_tokens": 16000 if effort == "high" else 31999,
@@ -438,8 +445,10 @@ async def test_opencode_gateway_efforts_reach_provider(wire_server):
 
 
 async def test_opencode_ignores_a_variant_the_model_lacks(wire_server):
-    # An image's cached catalog can predate a model's effort options. The prompt
-    # must still succeed, falling back to the agent's default instead of failing.
+    """A variant the model lacks falls back to the agent default, not an error.
+
+    An image's cached catalog can predate a model's effort options.
+    """
     call, captured = wire_server
     sent, _ = submit(call, captured, "opencode/glm-5.2", "low")
-    assert sent["reasoning_effort"] == "high"
+    assert sent["reasoning_effort"] == AGENT_DEFAULT_EFFORT
