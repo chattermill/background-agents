@@ -240,7 +240,7 @@ def observed_tool_version(command: str, expected: str, output: str) -> str:
     """Normalize the command's leading version, not an expected substring."""
     prefixes = {
         "node": r"v",
-        "opencode": r"",
+        "opencode": r"opencode v",
         "codex": r"codex-cli ",
         "bun": r"",
         "pnpm": r"",
@@ -301,14 +301,6 @@ def inspect_image(plan: dict[str, Any], tools: dict[str, Any], *, services: bool
     probe.run(["gh", "--version"])
     if probe.run(["git", "config", "--system", "credential.useHttpPath"]) != "true":
         raise RuntimeError("SCM credential helper is not repository-path scoped")
-    probe.run(
-        [
-            "node",
-            "--input-type=module",
-            "-e",
-            "const p = await import('/app/opencode-deps/node_modules/@opencode-ai/plugin/dist/index.js'); if (typeof p.tool !== 'function') process.exit(1)",
-        ]
-    )
     for command in ("Xvfb", "fluxbox", "x11vnc", "websockify"):
         probe.run(["python3", "-c", "import shutil,sys; assert shutil.which(sys.argv[1])", command])
     if not Path("/usr/share/novnc/vnc.html").is_file():
@@ -324,9 +316,8 @@ def inspect_image(plan: dict[str, Any], tools: dict[str, Any], *, services: bool
     if services:
         probe.run(["python3", "-c", PNPM_GLOBAL_PROBE])
         probe.desktop()
-        probe.service(
-            ["opencode", "serve", "--hostname", "127.0.0.1", "--port", "{port}"], "/global/health"
-        )
+        # The OpenCode 2 API requires a password, but its web shell answers unauthenticated.
+        probe.service(["opencode", "serve", "--hostname", "127.0.0.1", "--port", "{port}"])
         probe.service(
             [
                 "code-server",

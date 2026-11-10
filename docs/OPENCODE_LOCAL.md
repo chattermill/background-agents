@@ -16,7 +16,7 @@ subscriptions), see [CLAUDE_AGENT.md](CLAUDE_AGENT.md) and
 Use Node `>=24.0.0`, the same floor as the repo (`package.json` `engines`).
 
 ```bash
-npm install -g opencode-ai            # or: curl -fsSL https://opencode.ai/install | bash
+npm install -g @opencode/cli          # or: curl -fsSL https://opencode.ai/install | bash
 opencode --version
 ```
 
@@ -120,9 +120,9 @@ local run uses your own files and defaults instead.
 | Aspect      | Local run                               | Sandbox session                                                                  |
 | ----------- | --------------------------------------- | -------------------------------------------------------------------------------- |
 | Config      | `opencode.json` / `~/.config/opencode/` | Generated and passed as `OPENCODE_CONFIG_CONTENT`                                |
-| Permissions | OpenCode's defaults; `--auto` is opt-in | `{"*": {"*": "allow"}}` — the sandbox is the containment boundary                |
-| Interaction | TUI can ask you questions               | `OPENCODE_CLIENT=serve` disables the question tool (nothing can answer)          |
-| Tools       | Whatever you install                    | `.opencode/tool/*.js` (PR creation, child sessions, Slack notify) staged at boot |
+| Permissions | OpenCode's defaults; `--auto` is opt-in | Everything allowed except Code Mode, `question` and worktree tools               |
+| Interaction | TUI can ask you questions               | The `question` tool is denied (nothing can answer)                               |
+| Tools       | Whatever you install                    | The `oi` MCP server (PR creation, child sessions, Slack notify, memories)        |
 | Skills      | Whatever you install                    | Bundled skills copied into `.opencode/skills/`                                   |
 | MCP         | Your own config                         | Injected from session config, packages installed at boot                         |
 | Model       | `-m` or your default                    | Chosen per session by the control plane                                          |
