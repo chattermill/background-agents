@@ -47,28 +47,13 @@ OPENCODE_GATEWAYS = ("opencode", "opencode-go")
 # The agent-level effort the wire server configures; a prompt without a usable
 # variant falls back to it.
 AGENT_DEFAULT_EFFORT = "high"
-# Efforts the shared catalog offers on OpenCode Zen and Go, mirrored from
-# packages/shared/src/models.ts. Each must be a variant OpenCode derives for the
-# model; the field it lands in depends on the SDK the gateway routes the model to.
-OPENCODE_GATEWAY_EFFORTS = {
-    "opencode/kimi-k3": ["low", "high", "max"],
-    "opencode/glm-5.2": ["high", "max"],
-    "opencode-go/gpt-5.6-luna": ["none", "low", "medium", "high", "xhigh", "max"],
-    "opencode-go/glm-5.3-flash": ["low", "high", "max"],
-    "opencode-go/glm-5.3": ["low", "high", "max"],
-    "opencode-go/glm-5.2": ["high", "max"],
-    "opencode-go/kimi-k3": ["max"],
-    "opencode-go/longcat-2.0": ["low", "medium", "high"],
-    "opencode-go/deepseek-v4.1-flash": ["low", "high", "max"],
-    "opencode-go/deepseek-v4-pro": ["high", "max"],
-    "opencode-go/muse-spark-1.3-contributor": ["low", "medium", "high", "xhigh"],
-    "opencode-go/muse-spark-1.2-contributor": ["low", "medium", "high", "xhigh"],
-    "opencode-go/qwen3.8-max": ["low", "medium", "xhigh"],
-    "opencode-go/qwen3.8-flash": ["low", "medium", "xhigh"],
-    "opencode-go/qwen3.7-plus": ["high", "max"],
-    "opencode-go/hy4-preview": ["none", "high"],
-    "opencode-go/hy3": ["none", "low", "high"],
-}
+# Efforts the shared catalog offers on OpenCode Zen and Go. The shared package's
+# models.test.ts keeps this file equal to the catalog. Each must be a variant
+# OpenCode derives for the model; the field it lands in depends on the SDK the
+# gateway routes the model to.
+OPENCODE_GATEWAY_EFFORTS = json.loads(
+    (Path(__file__).parent / "fixtures/opencode-gateway-efforts.json").read_text()
+)
 
 
 def openai_events(model):
@@ -226,7 +211,8 @@ async def wire_server(tmp_path, reasoning_config, request):
                 "_bridge-client.js",
             ):
                 shutil.copy(source / name, destination / name)
-        config["agent"] = {"build": {"options": {"reasoningEffort": AGENT_DEFAULT_EFFORT}}}
+        if getattr(request, "param", None) != "no_agent_default":
+            config["agent"] = {"build": {"options": {"reasoningEffort": AGENT_DEFAULT_EFFORT}}}
         for provider in ("openai", "anthropic", *OPENCODE_GATEWAYS):
             config["provider"].setdefault(provider, {})["options"] = {
                 "baseURL": f"http://127.0.0.1:{mock.server_port}/v1",
@@ -413,8 +399,13 @@ async def test_unsupported_request_options_do_not_override_defaults(wire_server)
         assert captured[-1]["thinking"] is None
 
 
+@pytest.mark.parametrize("wire_server", ["no_agent_default"], indirect=True)
 async def test_opencode_gateway_efforts_reach_provider(wire_server):
-    """Every catalog effort on a Zen or Go model reaches the gateway request."""
+    """Every catalog effort on a Zen or Go model reaches the gateway request.
+
+    Runs without an agent default effort, so a dropped variant cannot pass by
+    coincidence with the default.
+    """
     call, captured = wire_server
     catalog = json.loads(CATALOG.read_text())
     fixture_models = {
@@ -426,6 +417,8 @@ async def test_opencode_gateway_efforts_reach_provider(wire_server):
     for model, efforts in OPENCODE_GATEWAY_EFFORTS.items():
         provider, model_id = model.split("/", 1)
         npm = (catalog[provider]["models"][model_id].get("provider") or {}).get("npm")
+        sent, _ = submit(call, captured, model, None)
+        assert sent["reasoning_effort"] is None, model
         for effort in efforts:
             sent, _ = submit(call, captured, model, effort)
             context = f"{model} {effort}"
