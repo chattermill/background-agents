@@ -121,8 +121,8 @@ The catalog mirrors the model list Go publishes under
 [Endpoints](https://opencode.ai/docs/go/#endpoints), in the same order, with one exception: Go
 documents `minimax-m2.5`, but the OpenCode release pinned in
 `packages/sandbox-images/toolchain.json` does not resolve `opencode-go/minimax-m2.5`
-(`opencode models` lists 27 Go models, not 28), so it is left out rather than offered as a selection
-that fails. That model is reachable as `opencode/minimax-m2.5` on Zen.
+(`opencode models` does not list it), so it is left out rather than offered as a selection that
+fails. That model is reachable as `opencode/minimax-m2.5` on Zen.
 
 | Model ID                                   | Display name                 | Description                   | Reasoning efforts                   | Default effort |
 | ------------------------------------------ | ---------------------------- | ----------------------------- | ----------------------------------- | -------------- |
