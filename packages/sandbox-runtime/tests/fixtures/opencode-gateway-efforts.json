@@ -6,7 +6,6 @@
   "opencode-go/glm-5.3": ["low", "high", "max"],
   "opencode-go/glm-5.2": ["high", "max"],
   "opencode-go/kimi-k3": ["max"],
-  "opencode-go/longcat-2.0": ["low", "medium", "high"],
   "opencode-go/deepseek-v4.1-flash": ["low", "high", "max"],
   "opencode-go/deepseek-v4-pro": ["high", "max"],
   "opencode-go/muse-spark-1.3-contributor": ["low", "medium", "high", "xhigh"],

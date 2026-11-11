@@ -331,12 +331,7 @@ export const MODEL_CATALOG = [
       },
       { id: "opencode-go/kimi-k2.7-code", name: "Kimi K2.7 Code", description: "Moonshot AI" },
       { id: "opencode-go/kimi-k2.6", name: "Kimi K2.6", description: "Moonshot AI" },
-      {
-        id: "opencode-go/longcat-2.0",
-        name: "LongCat 2.0",
-        description: "Meituan",
-        reasoning: { efforts: ["low", "medium", "high"], default: undefined },
-      },
+      { id: "opencode-go/longcat-2.0", name: "LongCat 2.0", description: "Meituan" },
       {
         id: "opencode-go/deepseek-v4.1-flash",
         name: "DeepSeek V4.1 Flash",

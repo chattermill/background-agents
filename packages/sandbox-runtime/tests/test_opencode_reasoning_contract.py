@@ -17,7 +17,7 @@ GPT-6.1 Terra added from the 2026-11-04 retrieval.
 Source SHA-256: 3c98c4ea4ce2fc866e8f7cf858f7c79ce96d12aa190b6f26b9af77b448519b02
 OpenCode Zen and Go models with efforts added from the 2026-11-10 retrieval.
 Source SHA-256: 4f9cc07fff594ef0745e8c243fc0c5a0b68b2279b0d062cca5c8a3df6382e0ed
-Subset SHA-256: fc3703a53eae412bd449be7a05b0e12826382c9c92fa804e1eadf6500b4d3b04
+Subset SHA-256: eb88d4c5d807e16092fcf49efc172ecfda8d6e2a77f6cc1314965373faec3f6e
 Reconcile this frozen fixture with shared model/effort definitions when changing
 models or the binary. Mocks verify serialization, not live provider acceptance.
 """

@@ -83,9 +83,11 @@ instructions.
 OpenCode Zen models require `OPENCODE_API_KEY` as a global or repository secret. Zen is
 pay-per-token against `https://opencode.ai/zen/v1`.
 
-Reasoning efforts on Zen and Go models are the variants OpenCode derives for each model from the
-models.dev catalog. None of them has a default effort, so a session sends one only when you pick it
-and the gateway's own default applies otherwise.
+Reasoning efforts on Zen and Go models are the effort levels the models.dev catalog lists for each
+model. A model the catalog marks only as reasoning on or off, such as LongCat 2.0, has none. None of
+them has a default effort, so the gateway's own default applies unless the session has one. That
+includes an effort carried over from an earlier message, a saved Slack preference or a parent
+session, which is sent whenever the new model supports that level.
 
 | Model ID                | Display name | Description   | Reasoning efforts | Default effort |
 | ----------------------- | ------------ | ------------- | ----------------- | -------------- |
@@ -129,7 +131,7 @@ that fails. That model is reachable as `opencode/minimax-m2.5` on Zen.
 | `opencode-go/kimi-k3`                      | Kimi K3                      | Moonshot AI                   | max                                 | Not set        |
 | `opencode-go/kimi-k2.7-code`               | Kimi K2.7 Code               | Moonshot AI                   | Not supported                       | N/A            |
 | `opencode-go/kimi-k2.6`                    | Kimi K2.6                    | Moonshot AI                   | Not supported                       | N/A            |
-| `opencode-go/longcat-2.0`                  | LongCat 2.0                  | Meituan                       | low, medium, high                   | Not set        |
+| `opencode-go/longcat-2.0`                  | LongCat 2.0                  | Meituan                       | Not supported                       | N/A            |
 | `opencode-go/deepseek-v4.1-flash`          | DeepSeek V4.1 Flash          | DeepSeek                      | low, high, max                      | Not set        |
 | `opencode-go/deepseek-v4-pro`              | DeepSeek V4 Pro              | DeepSeek                      | high, max                           | Not set        |
 | `opencode-go/deepseek-v4-flash`            | DeepSeek V4 Flash            | DeepSeek                      | Not supported                       | N/A            |
