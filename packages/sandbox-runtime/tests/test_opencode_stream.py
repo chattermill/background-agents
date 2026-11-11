@@ -105,8 +105,11 @@ class FakeClient:
         self.stops.append(reason)
         return True
 
-    async def get_messages(self, session_id: str) -> list[dict[str, Any]]:
-        return self._messages
+    async def messages_after(self, session_id: str, message_id: str) -> list[dict[str, Any]] | None:
+        for index, message in enumerate(self._messages):
+            if message.get("id") == message_id:
+                return self._messages[:index]
+        return None
 
 
 def make_stream(client: FakeClient, attachment_parts: list[dict[str, Any]] | None = None):
@@ -258,6 +261,23 @@ async def test_lost_stream_recovers_this_prompts_reply():
         ):
             events.append(event)
     assert [e["content"] for e in of_type(events, "token")] == ["checking", "final answer"]
+
+
+async def test_an_undelivered_prompt_recovers_no_older_replies():
+    fixture = recorded("shell_and_text")
+    session_id = root_session(fixture)
+    # The prompt was queued but never delivered: only an earlier turn is listed.
+    older = [
+        {"id": "msg_a", "type": "assistant", "content": [{"type": "text", "text": "old turn"}]},
+    ]
+    client = FakeClient(fixture, disconnect_after=6, messages=older)
+    events: list[dict] = []
+    with pytest.raises(SSEConnectionError):
+        async for event in make_stream(client).stream_prompt(
+            opencode_session_id=session_id, message_id="cp-msg", content="hi"
+        ):
+            events.append(event)
+    assert "old turn" not in [e["content"] for e in of_type(events, "token")]
 
 
 async def test_model_and_effort_are_applied_to_the_session_once():

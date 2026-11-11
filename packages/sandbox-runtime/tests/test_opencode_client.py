@@ -90,9 +90,25 @@ async def test_idle_means_no_active_session():
     assert await client.wait_until_idle(timeout_seconds=2.0)
 
 
-async def test_messages_come_from_the_data_envelope():
-    client, _ = make_client(lambda _r: httpx.Response(200, json={"data": [{"id": "msg_1"}]}))
-    assert await client.get_messages("ses_1") == [{"id": "msg_1"}]
+async def test_messages_after_follow_pages_to_the_user_message():
+    pages = {
+        None: {"data": [{"id": "msg_3"}, {"id": "msg_2"}], "cursor": {"next": "c1"}},
+        "c1": {"data": [{"id": "msg_user"}, {"id": "msg_0"}], "cursor": {"next": "c2"}},
+    }
+    client, seen = make_client(
+        lambda r: httpx.Response(200, json=pages[r.url.params.get("cursor")])
+    )
+    assert await client.messages_after("ses_1", "msg_user") == [{"id": "msg_3"}, {"id": "msg_2"}]
+    assert seen[0].url.params["order"] == "desc"
+    assert seen[1].url.params["cursor"] == "c1"
+    assert "order" not in seen[1].url.params
+
+
+async def test_messages_after_an_absent_message_is_none():
+    client, _ = make_client(
+        lambda _r: httpx.Response(200, json={"data": [{"id": "msg_1"}], "cursor": {"next": None}})
+    )
+    assert await client.messages_after("ses_1", "msg_user") is None
 
 
 @pytest.mark.parametrize(

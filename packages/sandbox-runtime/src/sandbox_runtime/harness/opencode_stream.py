@@ -561,24 +561,24 @@ class OpenCodePromptStream:
     async def _recover_final_text(self, state: _PromptState) -> list[dict[str, Any]]:
         """Re-read this prompt's assistant text after the event stream was lost.
 
-        ``/message`` lists newest first, so this prompt's assistant messages
-        are the ones listed before its user message.
+        This prompt's assistant messages are the ones newer than its user
+        message. Without that message in the session (the prompt was never
+        delivered), nothing is recovered: older replies are not this prompt's.
         """
         if state.user_message_id is None:
             return []
         try:
-            messages = await self._client.get_messages(state.opencode_session_id)
+            messages = await self._client.messages_after(
+                state.opencode_session_id, state.user_message_id
+            )
         except Exception as error:
             self._log.error("bridge.final_state_error", exc=error)
             return []
-        replies: list[dict[str, Any]] = []
-        for message in messages or []:
-            if not isinstance(message, dict):
-                continue
-            if message.get("id") == state.user_message_id:
-                break
-            if message.get("type") == "assistant":
-                replies.append(message)
+        replies = [
+            message
+            for message in messages or []
+            if isinstance(message, dict) and message.get("type") == "assistant"
+        ]
         events: list[dict[str, Any]] = []
         for message in reversed(replies):
             texts = [

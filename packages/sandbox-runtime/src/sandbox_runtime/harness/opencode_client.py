@@ -20,6 +20,8 @@ if TYPE_CHECKING:
 HTTP_CONNECT_TIMEOUT_SECONDS: Final = 30.0
 OPENCODE_REQUEST_TIMEOUT_SECONDS: Final = 30.0
 EXECUTION_STOP_POLL_SECONDS: Final = 0.1
+# Recovery reads back at most this many pages of a session's messages.
+MESSAGE_PAGES_MAX: Final = 20
 API_PREFIX: Final = "/api"
 _UNAVAILABLE_MCP_STATUSES: Final = frozenset({"failed", "needs_auth", "needs_client_registration"})
 
@@ -243,14 +245,31 @@ class OpenCodeClient:
                 return False
             await asyncio.sleep(min(EXECUTION_STOP_POLL_SECONDS, remaining))
 
-    async def get_messages(self, opencode_session_id: str) -> list[Any] | None:
-        """The session's messages, newest first; ``None`` when OpenCode rejects the fetch."""
-        response = await self._client().get(self._session_url(opencode_session_id, "/message"))
-        if response.status_code != 200:
-            self._log.warn("bridge.final_state_fetch_error", status_code=response.status_code)
-            return None
-        messages: list[Any] = response.json().get("data", [])
-        return messages
+    async def messages_after(self, opencode_session_id: str, message_id: str) -> list[Any] | None:
+        """The session's messages newer than ``message_id``, newest first.
+
+        Follows the listing's pages until ``message_id`` appears. ``None`` when
+        it never does (the prompt was not delivered) or OpenCode rejects a fetch.
+        """
+        newer: list[Any] = []
+        params: dict[str, str] = {"order": "desc"}
+        for _ in range(MESSAGE_PAGES_MAX):
+            response = await self._client().get(
+                self._session_url(opencode_session_id, "/message"), params=params
+            )
+            if response.status_code != 200:
+                self._log.warn("bridge.final_state_fetch_error", status_code=response.status_code)
+                return None
+            page = response.json()
+            for message in page.get("data") or []:
+                if isinstance(message, dict) and message.get("id") == message_id:
+                    return newer
+                newer.append(message)
+            next_cursor = (page.get("cursor") or {}).get("next")
+            if not next_cursor:
+                return None
+            params = {"cursor": next_cursor}
+        return None
 
     async def _decoded_events(
         self,
