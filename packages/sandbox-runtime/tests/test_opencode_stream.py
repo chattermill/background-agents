@@ -292,6 +292,20 @@ async def test_model_and_effort_are_applied_to_the_session_once():
     ]
 
 
+GATEWAY_EFFORTS = json.loads((FIXTURES.parent / "opencode-gateway-efforts.json").read_text())
+
+
+@pytest.mark.parametrize(("model", "efforts"), sorted(GATEWAY_EFFORTS.items()))
+async def test_opencode_zen_and_go_efforts_select_a_variant(model: str, efforts: list[str]):
+    """Every effort the catalog offers on a Zen or Go model is sent as its variant."""
+    provider_id, model_id = model.split("/", 1)
+    fixture = recorded("shell_and_text")
+    for effort in efforts:
+        client = FakeClient(fixture, variants={(provider_id, model_id): efforts})
+        await run(make_stream(client), root_session(fixture), model=model, reasoning_effort=effort)
+        assert client.selected == [{"providerID": provider_id, "id": model_id, "variant": effort}]
+
+
 async def test_effort_without_a_variant_is_dropped():
     fixture = recorded("shell_and_text")
     client = FakeClient(fixture, variants={("openai", "gpt-6.1-sol"): ["low", "high"]})

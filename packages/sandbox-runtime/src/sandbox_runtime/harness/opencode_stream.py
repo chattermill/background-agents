@@ -41,7 +41,12 @@ _TOOL_NAMES: Final = {"shell": "bash", "subagent": "task"}
 _OI_TOOL_PREFIX: Final = f"{OI_TOOL_SERVER_NAME}_"
 # OpenCode's file tools take ``path``; the UI reads ``filePath``.
 _PATH_ARG_TOOLS: Final = frozenset({"read", "edit", "write"})
-_REASONING_PROVIDERS: Final = frozenset({"anthropic", "openai", "xai"})
+# Providers whose models take the requested reasoning effort as an OpenCode
+# variant. OpenCode Zen and Go route each model to its own SDK, but OpenCode
+# derives the variants from the catalog either way.
+VARIANT_REASONING_PROVIDERS: Final = frozenset(
+    {"anthropic", "openai", "xai", "opencode", "opencode-go"}
+)
 # OpenCode names a session after its first execution ends. A short first
 # turn finishes before the name exists, so the stream waits this long for it.
 SESSION_TITLE_GRACE_SECONDS: Final = 3.0
@@ -298,7 +303,7 @@ class OpenCodePromptStream:
             return
         provider_id, model_id = model.split("/", 1) if "/" in model else ("anthropic", model)
         selection = {"providerID": provider_id, "id": model_id}
-        if reasoning_effort and provider_id in _REASONING_PROVIDERS:
+        if reasoning_effort and provider_id in VARIANT_REASONING_PROVIDERS:
             # An effort the model has no variant for would fail the whole
             # turn, so it is dropped and the model's default applies.
             variants = await self._client.model_variants(provider_id, model_id)
