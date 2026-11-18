@@ -125,8 +125,10 @@ class _PromptState:
     emitted_tool_states: set[tuple[str, str]] = field(default_factory=set)
     # Child session -> its parent session, for every descendant of this prompt.
     children: dict[str, str] = field(default_factory=dict)
-    # Child session -> the parent ``subagent`` call that started it.
+    # Child session -> the ``subagent`` call that last ran it, for routing its activity.
     child_calls: dict[str, str] = field(default_factory=dict)
+    # ``subagent`` call -> the child session it ran, for that call's own events.
+    call_children: dict[str, str] = field(default_factory=dict)
     step_costs: dict[str, float] = field(default_factory=dict)
     emitted_error: bool = False
 
@@ -506,9 +508,18 @@ class OpenCodePromptStream:
                 child_id = metadata.get("sessionID") if isinstance(metadata, dict) else None
                 if call.name == "task" and isinstance(child_id, str) and child_id:
                     # A later task call can continue the same child session.
-                    if state.child_calls.get(child_id) != call_id:
+                    if state.call_children.get(call_id) != child_id:
+                        state.call_children[call_id] = child_id
                         state.child_calls[child_id] = call_id
-                        state.children.setdefault(child_id, state.opencode_session_id)
+                        # A resumed child gets no ``session.created``: its parent
+                        # is the session that ran this call.
+                        caller = data.get("sessionID")
+                        state.children.setdefault(
+                            child_id,
+                            caller
+                            if isinstance(caller, str) and caller
+                            else state.opencode_session_id,
+                        )
                         return [self._tool_call(state, call_id, call, "running", "", child_id)]
                 return []
             case "session.tool.success":
@@ -521,10 +532,9 @@ class OpenCodePromptStream:
         if (call_id, status) in state.emitted_tool_states:
             return []
         state.emitted_tool_states.add((call_id, status))
-        child_id = next(
-            (child for child, call in state.child_calls.items() if call == call_id), None
-        )
-        return [self._tool_call(state, call_id, call, status, output, child_id)]
+        return [
+            self._tool_call(state, call_id, call, status, output, state.call_children.get(call_id))
+        ]
 
     @staticmethod
     def _tool_call(

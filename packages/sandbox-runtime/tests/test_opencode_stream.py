@@ -247,25 +247,98 @@ async def test_a_subagent_tool_failure_keeps_its_error():
     assert [(e["status"], e["output"]) for e in calls] == [("running", ""), ("error", "boom")]
 
 
-async def test_a_resumed_subagent_is_attributed_to_the_resuming_call():
-    fixture = recorded("subagent")
-    parent = root_session(fixture)
+def task_call_events(fixture: list[dict[str, Any]], call_id: str) -> list[dict[str, Any]]:
+    """The recorded ``subagent`` call's own events, renamed to ``call_id``."""
     first = next(e["data"]["id"] for e in fixture if e["type"] == "session.tool.input.started")
-    call_events = [
-        e for e in fixture if e["type"].startswith("session.tool.") and e["data"].get("id") == first
+    return [
+        {"type": e["type"], "data": {**e["data"], "id": call_id}}
+        for e in fixture
+        if e["type"].startswith("session.tool.") and e["data"].get("id") == first
     ]
-    # The parent continues the same child with a second task call.
-    second = [{"type": e["type"], "data": {**e["data"], "id": "call_again"}} for e in call_events]
-    done = next(
+
+
+def parent_step_end(fixture: list[dict[str, Any]]) -> int:
+    parent = root_session(fixture)
+    return next(
         i
         for i, e in enumerate(fixture)
         if e["type"] == "session.step.ended" and e["data"]["sessionID"] == parent
     )
+
+
+async def test_a_resumed_subagent_is_attributed_to_the_resuming_call():
+    fixture = recorded("subagent")
+    child = next(e["data"]["sessionID"] for e in fixture if e["data"].get("parentID"))
+    # The parent continues the same child with a second task call, which runs a tool.
+    second = task_call_events(fixture, "call_again")
+    progress = next(i for i, e in enumerate(second) if e["type"] == "session.tool.progress")
+    second[progress + 1 : progress + 1] = child_tool_events(child, "call_resumed", failed=False)
+    done = parent_step_end(fixture)
     fixture[done:done] = second
-    events = await run(make_stream(FakeClient(fixture)), parent)
+    events = await run(make_stream(FakeClient(fixture)), root_session(fixture))
     again = [e for e in of_type(events, "tool_call") if e["callId"] == "call_again"]
     assert again[-1]["status"] == "completed"
-    assert again[-1]["childSessionId"]
+    assert again[-1]["childSessionId"] == child
+    resumed = [e for e in of_type(events, "tool_call") if e["callId"] == "call_resumed"]
+    assert resumed
+    assert {(e["taskCallId"], e["childSessionId"]) for e in resumed} == {("call_again", child)}
+
+
+async def test_concurrent_calls_on_one_subagent_each_keep_its_session():
+    fixture = recorded("subagent")
+    child = next(e["data"]["sessionID"] for e in fixture if e["data"].get("parentID"))
+    first, second = task_call_events(fixture, "call_a"), task_call_events(fixture, "call_b")
+    ends = {"session.tool.success"}
+    # Both calls start before either finishes.
+    interleaved = [
+        *[e for e in first if e["type"] not in ends],
+        *[e for e in second if e["type"] not in ends],
+        *[e for e in first if e["type"] in ends],
+        *[e for e in second if e["type"] in ends],
+    ]
+    done = parent_step_end(fixture)
+    fixture[done:done] = interleaved
+    events = await run(make_stream(FakeClient(fixture)), root_session(fixture))
+    for call_id in ("call_a", "call_b"):
+        calls = [e for e in of_type(events, "tool_call") if e["callId"] == call_id]
+        assert calls[-1]["status"] == "completed"
+        assert calls[-1]["childSessionId"] == child
+
+
+async def test_a_resumed_grandchild_is_attributed_to_the_root_task_call():
+    fixture = recorded("subagent")
+    child = next(e["data"]["sessionID"] for e in fixture if e["data"].get("parentID"))
+    root_call = next(e["data"]["id"] for e in fixture if e["type"] == "session.tool.input.started")
+    # The child resumes an existing grandchild: no ``session.created`` for it.
+    grandchild = "ses_grandchild"
+    nested = [
+        {
+            "type": e["type"],
+            "data": {
+                **e["data"],
+                "sessionID": child,
+                "id": "call_nested",
+                **(
+                    {"metadata": {**e["data"]["metadata"], "sessionID": grandchild}}
+                    if e["type"] == "session.tool.progress"
+                    else {}
+                ),
+            },
+        }
+        for e in task_call_events(fixture, "call_nested")
+    ]
+    progress = next(i for i, e in enumerate(nested) if e["type"] == "session.tool.progress")
+    nested[progress + 1 : progress + 1] = child_tool_events(grandchild, "call_deep", failed=False)
+    ended = next(
+        i
+        for i, e in enumerate(fixture)
+        if e["type"] == "session.step.ended" and e["data"]["sessionID"] == child
+    )
+    fixture[ended:ended] = nested
+    events = await run(make_stream(FakeClient(fixture)), root_session(fixture))
+    deep = [e for e in of_type(events, "tool_call") if e["callId"] == "call_deep"]
+    assert deep
+    assert {(e["taskCallId"], e["childSessionId"]) for e in deep} == {(root_call, grandchild)}
 
 
 async def test_oi_mcp_tools_drop_their_server_prefix():

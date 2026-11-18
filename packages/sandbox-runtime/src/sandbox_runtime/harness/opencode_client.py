@@ -210,9 +210,10 @@ class OpenCodeClient:
             )
             raise RuntimeError(f"Prompt failed: {response.status_code} - {response.text}")
         try:
-            admitted = response.json().get("data") or {}
+            body = response.json()
         except ValueError:
             return None
+        admitted = body.get("data") if isinstance(body, dict) else None
         message_id = admitted.get("id") if isinstance(admitted, dict) else None
         return message_id if isinstance(message_id, str) and message_id else None
 

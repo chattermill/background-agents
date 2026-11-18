@@ -51,6 +51,12 @@ async def test_post_prompt_returns_the_admitted_user_message_id():
     assert await client.post_prompt("ses_1", {"text": "hi"}) == "msg_user"
 
 
+@pytest.mark.parametrize("body", [[], "queued", {"data": []}, {"data": {"id": 7}}])
+async def test_post_prompt_without_an_admitted_message_object_is_none(body):
+    client, _ = make_client(lambda r: httpx.Response(200, json=body))
+    assert await client.post_prompt("ses_1", {"text": "hi"}) is None
+
+
 async def test_prompt_select_model_and_interrupt_use_v2_routes():
     client, seen = make_client(
         lambda r: httpx.Response(204 if r.url.path.endswith("/model") else 200, json={})
