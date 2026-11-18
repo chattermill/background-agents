@@ -252,6 +252,26 @@ export const MODEL_CATALOG = [
         },
       },
       {
+        id: "openai/gpt-6.2-astra",
+        codex: { default: "low" },
+        name: "GPT-6.2 Astra",
+        description: "Most capable model for your hardest projects",
+        reasoning: {
+          efforts: ["low", "medium", "high", "xhigh", "max"],
+          default: "medium",
+        },
+      },
+      {
+        id: "openai/gpt-6.2-sol",
+        codex: { default: "low" },
+        name: "GPT-6.2 Sol",
+        description: "Efficient everyday model for coding and agents",
+        reasoning: {
+          efforts: ["low", "medium", "high", "xhigh", "max"],
+          default: "medium",
+        },
+      },
+      {
         id: "openai/gpt-6-luna",
         codex: {},
         name: "GPT-6 Luna",
@@ -285,6 +305,24 @@ export const MODEL_CATALOG = [
         description: "Z.ai",
         reasoning: { efforts: ["high", "max"], default: undefined },
       },
+      {
+        id: "opencode/gemini-4-carbon",
+        name: "Gemini 4 Carbon",
+        description: "Google",
+        reasoning: { efforts: ["low", "medium", "high"], default: "high" },
+      },
+      {
+        id: "opencode/gemini-4-argon",
+        name: "Gemini 4 Argon",
+        description: "Google",
+        reasoning: { efforts: ["low", "medium", "high"], default: "high" },
+      },
+      {
+        id: "opencode/gemini-3.8-flash",
+        name: "Gemini 3.8 Flash",
+        description: "Google",
+        reasoning: { efforts: ["low", "medium", "high"], default: "high" },
+      },
     ],
   },
   {
@@ -303,6 +341,12 @@ export const MODEL_CATALOG = [
           efforts: ["none", "low", "medium", "high", "xhigh", "max"],
           default: undefined,
         },
+      },
+      {
+        id: "opencode-go/gemini-4-argon",
+        name: "Gemini 4 Argon",
+        description: "Google",
+        reasoning: { efforts: ["low", "medium", "high"], default: "high" },
       },
       {
         id: "opencode-go/glm-5.3-flash",

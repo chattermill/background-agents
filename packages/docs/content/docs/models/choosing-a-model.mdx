@@ -92,6 +92,8 @@ Runs on OpenCode, and every model except GPT 5.4 also runs on Codex. Credential:
 | `openai/gpt-6-sol`     | GPT-6 Sol     | none, low, medium, high, xhigh, max | medium         |
 | `openai/gpt-6.1-sol`   | GPT-6.1 Sol   | low, medium, high, xhigh, max       | medium         |
 | `openai/gpt-6.1-terra` | GPT-6.1 Terra | none, low, medium, high, xhigh, max | medium         |
+| `openai/gpt-6.2-astra` | GPT-6.2 Astra | low, medium, high, xhigh, max       | medium         |
+| `openai/gpt-6.2-sol`   | GPT-6.2 Sol   | low, medium, high, xhigh, max       | medium         |
 | `openai/gpt-6-luna`    | GPT-6 Luna    | none, low, medium, high, xhigh, max | medium         |
 
 "Not set" means the composer shows **Default** and sends no effort unless you choose one.
@@ -109,6 +111,8 @@ On Codex, each model has its own effort list and default: never None, and Max on
 | GPT-6 Sol     | low, medium, high, xhigh, max | medium        |
 | GPT-6.1 Sol   | low, medium, high, xhigh, max | low           |
 | GPT-6.1 Terra | low, medium, high, xhigh, max | low           |
+| GPT-6.2 Astra | low, medium, high, xhigh, max | low           |
+| GPT-6.2 Sol   | low, medium, high, xhigh, max | low           |
 | GPT-6 Luna    | low, medium, high, xhigh, max | medium        |
 
 ### xAI / SuperGrok
@@ -126,16 +130,19 @@ Runs on OpenCode only. Opt-in group. Credential: a connected SuperGrok account, 
 
 Runs on OpenCode only. Opt-in group. Credential: `OPENCODE_API_KEY` as a global or repository secret. Zen is billed per token.
 
-| Model ID                | Display name | Reasoning efforts | Default effort |
-| ----------------------- | ------------ | ----------------- | -------------- |
-| `opencode/kimi-k2.5`    | Kimi K2.5    | Not supported     | N/A            |
-| `opencode/kimi-k2.6`    | Kimi K2.6    | Not supported     | N/A            |
-| `opencode/kimi-k3`      | Kimi K3      | low, high, max    | Not set        |
-| `opencode/minimax-m2.5` | MiniMax M2.5 | Not supported     | N/A            |
-| `opencode/qwen3.7-max`  | Qwen3.7 Max  | Not supported     | N/A            |
-| `opencode/glm-5`        | GLM 5        | Not supported     | N/A            |
-| `opencode/glm-5.1`      | GLM 5.1      | Not supported     | N/A            |
-| `opencode/glm-5.2`      | GLM 5.2      | high, max         | Not set        |
+| Model ID                    | Display name     | Reasoning efforts | Default effort |
+| --------------------------- | ---------------- | ----------------- | -------------- |
+| `opencode/kimi-k2.5`        | Kimi K2.5        | Not supported     | N/A            |
+| `opencode/kimi-k2.6`        | Kimi K2.6        | Not supported     | N/A            |
+| `opencode/kimi-k3`          | Kimi K3          | low, high, max    | Not set        |
+| `opencode/minimax-m2.5`     | MiniMax M2.5     | Not supported     | N/A            |
+| `opencode/qwen3.7-max`      | Qwen3.7 Max      | Not supported     | N/A            |
+| `opencode/glm-5`            | GLM 5            | Not supported     | N/A            |
+| `opencode/glm-5.1`          | GLM 5.1          | Not supported     | N/A            |
+| `opencode/glm-5.2`          | GLM 5.2          | high, max         | Not set        |
+| `opencode/gemini-4-carbon`  | Gemini 4 Carbon  | low, medium, high | high           |
+| `opencode/gemini-4-argon`   | Gemini 4 Argon   | low, medium, high | high           |
+| `opencode/gemini-3.8-flash` | Gemini 3.8 Flash | low, medium, high | high           |
 
 ### OpenCode Go
 
@@ -152,6 +159,7 @@ Runs on OpenCode only. Opt-in group. Credential: the same `OPENCODE_API_KEY` sec
 | ------------------------------------------ | ---------------------------- | ----------------------------------- | -------------- |
 | `opencode-go/grok-4.6`                     | Grok 4.6                     | Not supported                       | N/A            |
 | `opencode-go/gpt-5.6-luna`                 | GPT 5.6 Luna                 | none, low, medium, high, xhigh, max | Not set        |
+| `opencode-go/gemini-4-argon`               | Gemini 4 Argon               | low, medium, high                   | high           |
 | `opencode-go/glm-5.3-flash`                | GLM 5.3 Flash                | low, high, max                      | Not set        |
 | `opencode-go/glm-5.3`                      | GLM 5.3                      | low, high, max                      | Not set        |
 | `opencode-go/glm-5.2`                      | GLM 5.2                      | high, max                           | Not set        |
@@ -213,7 +221,7 @@ Runs on OpenCode only. Opt-in group. Credential: `DEEPSEEK_API_KEY` as a global 
 
 ## The same model behind several gateways
 
-Some models appear more than once because they are reachable through more than one provider, each billed against a different credential. `opencode-go/grok-4.6` and `xai/grok-4.6` are the same Grok model behind two gateways. `opencode-go/glm-5.2`, `opencode/glm-5.2`, and `zai-coding-plan/glm-5.2` are the same GLM model behind three. Pick the entry whose billing you want.
+Some models appear more than once because they are reachable through more than one provider, each billed differently. `opencode-go/grok-4.6` and `xai/grok-4.6` are the same Grok model behind two gateways. `opencode-go/glm-5.2`, `opencode/glm-5.2`, and `zai-coding-plan/glm-5.2` are the same GLM model behind three. `opencode/gemini-4-argon` and `opencode-go/gemini-4-argon` are the same Gemini model on Zen and Go: one `OPENCODE_API_KEY` serves both, billed per token on Zen and against the subscription allowance on Go. Pick the entry whose billing you want.
 
 ## Defaults for integrations and automations
 
