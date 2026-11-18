@@ -15,12 +15,15 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from sandbox_runtime.harness.base import HarnessPrompt, PromptLimits
+from sandbox_runtime.harness.opencode import OpencodeHarness
 from sandbox_runtime.harness.opencode_client import (
     SSEConnectionError,
     SSEInactivityTimeoutError,
     SSEStreamDisconnectedError,
 )
 from sandbox_runtime.harness.opencode_stream import (
+    ExecutionInterruptedError,
     OpenCodePromptStream,
     bridge_tool_args,
     bridge_tool_name,
@@ -224,13 +227,42 @@ async def test_execution_failure_is_reported_once(name: str, message: str):
     assert of_type(events, "error") == [{"type": "error", "error": message, "messageId": "cp-msg"}]
 
 
-async def test_interrupted_turn_ends_without_an_error():
+async def test_interrupted_turn_ends_as_interrupted_without_an_error():
     fixture = recorded("interrupted")
-    events = await run(make_stream(FakeClient(fixture)), root_session(fixture))
+    events: list[dict] = []
+    with pytest.raises(ExecutionInterruptedError):
+        async for event in make_stream(FakeClient(fixture)).stream_prompt(
+            opencode_session_id=root_session(fixture), message_id="cp-msg", content="hi"
+        ):
+            events.append(event)
     assert of_type(events, "tool_call")[-1]["status"] == "error"
     assert of_type(events, "tool_call")[-1]["output"] == "Tool execution interrupted"
     assert of_type(events, "step_finish")[-1]["reason"] == "error"
     assert not of_type(events, "error")
+
+
+async def test_an_interrupted_turn_is_reported_as_cancelled():
+    fixture = recorded("interrupted")
+    harness = OpencodeHarness(
+        client=FakeClient(fixture),  # type: ignore[arg-type]
+        attachment_processor=MagicMock(),
+        log=MagicMock(),
+        limits=PromptLimits(
+            inactivity_timeout_seconds=120.0,
+            prompt_max_duration_seconds=600.0,
+            prompt_cleanup_timeout_seconds=5.0,
+        ),
+    )
+    harness.session_id = root_session(fixture)
+    emitted: list[dict] = []
+
+    async def emit(event: dict) -> None:
+        emitted.append(event)
+
+    outcome = await harness.run_prompt(HarnessPrompt(message_id="cp-msg", text="hi"), emit)
+    assert outcome.cancelled
+    assert not outcome.success
+    assert of_type(emitted, "step_finish")
 
 
 async def test_other_sessions_events_are_ignored():
@@ -278,6 +310,30 @@ async def test_an_undelivered_prompt_recovers_no_older_replies():
         ):
             events.append(event)
     assert "old turn" not in [e["content"] for e in of_type(events, "token")]
+
+
+@pytest.mark.parametrize(
+    ("then", "error"),
+    [("inactive", RuntimeError), (None, SSEConnectionError)],
+)
+async def test_recovery_after_a_lost_stream_is_bounded(then: str | None, error: type):
+    fixture = recorded("shell_and_text")
+    started = next(i for i, e in enumerate(fixture) if e["type"] == "session.inbox.enqueued")
+    # The stream times out, or ends before the execution does.
+    client = FakeClient(fixture[: started + 1], then=then)
+    recovering = asyncio.Event()
+
+    async def hung_messages_after(session_id: str, message_id: str):
+        recovering.set()
+        await asyncio.Event().wait()
+
+    client.messages_after = hung_messages_after  # type: ignore[method-assign]
+    stream = make_stream(client)
+    stream._prompt_cleanup_timeout_seconds = 0.05
+    with pytest.raises(error):
+        async with asyncio.timeout(2):
+            await run(stream, root_session(fixture))
+    assert recovering.is_set()
 
 
 async def test_model_and_effort_are_applied_to_the_session_once():

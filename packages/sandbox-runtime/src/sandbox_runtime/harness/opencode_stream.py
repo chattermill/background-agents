@@ -60,9 +60,14 @@ class _PromptMaxDurationTimeout(Exception):
     """The prompt's max-duration deadline expired."""
 
 
+class ExecutionInterruptedError(Exception):
+    """OpenCode stopped the execution at a request that did not come from the bridge."""
+
+
 class _Outcome(Enum):
     CONTINUE = "continue"
     FINISHED = "finished"
+    INTERRUPTED = "interrupted"
 
 
 def bridge_tool_name(name: str) -> str:
@@ -205,12 +210,14 @@ class OpenCodePromptStream:
                     outcome, translated = self.apply_event(state, event)
                     for bridge_event in translated:
                         yield bridge_event
-                    if outcome is _Outcome.FINISHED:
+                    if outcome is not _Outcome.CONTINUE:
                         if self._last_forwarded_session_title is None and not self._title_waited:
                             self._title_waited = True
                             title = await self._late_session_title(state, iterator)
                             if title:
                                 yield title
+                        if outcome is _Outcome.INTERRUPTED:
+                            raise ExecutionInterruptedError("OpenCode execution interrupted")
                         return
                 raise SSEStreamDisconnectedError("OpenCode closed the event stream")
         except _PromptMaxDurationTimeout:
@@ -247,7 +254,7 @@ class OpenCodePromptStream:
                 message_id=message_id,
             )
             await self._client.request_stop(opencode_session_id, reason="inactivity_timeout")
-            for bridge_event in await self._recover_final_text(state):
+            for bridge_event in await self._recover_within_cleanup_budget(state):
                 yield bridge_event
             raise RuntimeError(
                 f"SSE stream inactive for {self._sse_inactivity_timeout_seconds:.0f}s "
@@ -255,12 +262,25 @@ class OpenCodePromptStream:
             )
         except SSEStreamDisconnectedError as error:
             # OpenCode drops a subscriber that falls behind its event buffer.
-            for bridge_event in await self._recover_final_text(state):
+            for bridge_event in await self._recover_within_cleanup_budget(state):
                 yield bridge_event
             raise SSEConnectionError(
                 "OpenCode event stream disconnected before completion; "
                 "partial output was preserved when available."
             ) from error
+
+    async def _recover_within_cleanup_budget(self, state: _PromptState) -> list[dict[str, Any]]:
+        """``_recover_final_text``, abandoned once the cleanup budget runs out."""
+        try:
+            async with asyncio.timeout(self._prompt_cleanup_timeout_seconds):
+                return await self._recover_final_text(state)
+        except TimeoutError:
+            self._log.error(
+                "bridge.final_state_recovery_timeout",
+                timeout_ms=int(self._prompt_cleanup_timeout_seconds * 1000),
+                message_id=state.message_id,
+            )
+            return []
 
     async def _settle_previous_execution(self, opencode_session_id: str) -> None:
         """Interrupt an execution an earlier prompt left running, and wait until it stops.
@@ -408,7 +428,7 @@ class OpenCodePromptStream:
                 return _Outcome.FINISHED, events
             case "session.execution.interrupted":
                 self._log_finished(state, f"interrupted:{data.get('reason')}")
-                return _Outcome.FINISHED, events
+                return _Outcome.INTERRUPTED, events
             case "session.execution.failed":
                 error_msg = _error_message(data.get("error"))
                 self._log.error("bridge.session_error", error_msg=error_msg)
