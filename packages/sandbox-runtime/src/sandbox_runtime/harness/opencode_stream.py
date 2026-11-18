@@ -22,6 +22,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Final
 
+import httpx
+
 from .opencode_client import (
     SSEConnectionError,
     SSEInactivityTimeoutError,
@@ -190,18 +192,20 @@ class OpenCodePromptStream:
                                 inactivity_timeout_seconds=self._sse_inactivity_timeout_seconds
                             )
                         )
-                        await self._client.post_prompt(
+                        # Known before the stream is read, so a stream lost before
+                        # ``session.inbox.enqueued`` can still recover the reply.
+                        state.user_message_id = await self._client.post_prompt(
                             opencode_session_id, self._prompt_body(content, attachments)
                         )
                 except TimeoutError as error:
                     raise _PromptMaxDurationTimeout from error
                 iterator = aiter(events)
                 while True:
-                    remaining = prompt_deadline - loop.time()
-                    if remaining <= 0:
+                    remaining_seconds = prompt_deadline - loop.time()
+                    if remaining_seconds <= 0:
                         raise _PromptMaxDurationTimeout
                     try:
-                        async with asyncio.timeout(remaining):
+                        async with asyncio.timeout(remaining_seconds):
                             event = await anext(iterator)
                     except StopAsyncIteration:
                         break
@@ -292,10 +296,18 @@ class OpenCodePromptStream:
         if not await self._client.session_active(opencode_session_id):
             return
         self._log.warn("bridge.previous_execution_running")
-        await self._client.request_stop(opencode_session_id, reason="previous_execution")
-        if not await self._client.wait_until_idle(
-            timeout_seconds=self._prompt_cleanup_timeout_seconds
-        ):
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self._prompt_cleanup_timeout_seconds
+        stopped = False
+        try:
+            async with asyncio.timeout_at(deadline):
+                await self._client.request_stop(opencode_session_id, reason="previous_execution")
+                stopped = await self._client.wait_until_idle(
+                    timeout_seconds=max(deadline - loop.time(), 0.0)
+                )
+        except TimeoutError:
+            pass
+        if not stopped:
             raise RuntimeError("The previous OpenCode execution did not stop")
 
     async def _late_session_title(
@@ -311,7 +323,8 @@ class OpenCodePromptStream:
                         and data.get("sessionID") == state.opencode_session_id
                     ):
                         return self._session_title_event_once(data.get("title"))
-        except (TimeoutError, SSEConnectionError, SSEInactivityTimeoutError):
+        except (TimeoutError, SSEConnectionError, SSEInactivityTimeoutError, httpx.TransportError):
+            # The title is optional: losing the stream here keeps the turn's outcome.
             pass
         return None
 
@@ -492,16 +505,19 @@ class OpenCodePromptStream:
                 metadata = data.get("metadata")
                 child_id = metadata.get("sessionID") if isinstance(metadata, dict) else None
                 if call.name == "task" and isinstance(child_id, str) and child_id:
-                    if child_id not in state.child_calls:
+                    # A later task call can continue the same child session.
+                    if state.child_calls.get(child_id) != call_id:
                         state.child_calls[child_id] = call_id
                         state.children.setdefault(child_id, state.opencode_session_id)
                         return [self._tool_call(state, call_id, call, "running", "", child_id)]
                 return []
             case "session.tool.success":
                 status, output = "completed", _content_text(data.get("content"))
-            case _:
+            case "session.tool.failed":
                 status = "error"
                 output = _error_message(data.get("error"))
+            case _:
+                return []
         if (call_id, status) in state.emitted_tool_states:
             return []
         state.emitted_tool_states.add((call_id, status))

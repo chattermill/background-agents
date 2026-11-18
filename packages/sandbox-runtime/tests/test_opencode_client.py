@@ -44,6 +44,13 @@ async def test_requests_carry_basic_auth_and_api_prefix():
     assert request.headers["authorization"] == "Basic " + base64.b64encode(b"opencode:pw").decode()
 
 
+async def test_post_prompt_returns_the_admitted_user_message_id():
+    client, _ = make_client(
+        lambda r: httpx.Response(200, json={"data": {"id": "msg_user", "type": "user"}})
+    )
+    assert await client.post_prompt("ses_1", {"text": "hi"}) == "msg_user"
+
+
 async def test_prompt_select_model_and_interrupt_use_v2_routes():
     client, seen = make_client(
         lambda r: httpx.Response(204 if r.url.path.endswith("/model") else 200, json={})

@@ -192,8 +192,13 @@ class OpenCodeClient:
             self._log.error("bridge.sse_transport_error", exc=e)
             raise SSEStreamDisconnectedError(str(e)) from e
 
-    async def post_prompt(self, opencode_session_id: str, request_body: dict[str, Any]) -> None:
-        """Queue the prompt; the turn itself arrives on the SSE stream."""
+    async def post_prompt(
+        self, opencode_session_id: str, request_body: dict[str, Any]
+    ) -> str | None:
+        """Queue the prompt and return the id of the user message it was admitted as.
+
+        The turn itself arrives on the SSE stream.
+        """
         response = await self._client().post(
             self._session_url(opencode_session_id, "/prompt"), json=request_body
         )
@@ -204,6 +209,12 @@ class OpenCodeClient:
                 error_body=response.text,
             )
             raise RuntimeError(f"Prompt failed: {response.status_code} - {response.text}")
+        try:
+            admitted = response.json().get("data") or {}
+        except ValueError:
+            return None
+        message_id = admitted.get("id") if isinstance(admitted, dict) else None
+        return message_id if isinstance(message_id, str) and message_id else None
 
     async def request_stop(self, opencode_session_id: str | None, *, reason: str) -> bool:
         """Best-effort interrupt of the session's running execution (saves LLM compute)."""

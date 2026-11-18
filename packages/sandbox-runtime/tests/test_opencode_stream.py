@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
+import httpx
 import pytest
 
 from sandbox_runtime.harness.base import HarnessPrompt, PromptLimits
@@ -55,8 +56,11 @@ class FakeClient:
         variants: dict[tuple[str, str], list[str]] | None = None,
         running: bool = False,
         stops_cleanly: bool = True,
+        admitted_id: str | None = None,
     ) -> None:
         self._events = events
+        # The user message id the prompt POST answers with.
+        self._admitted_id = admitted_id
         # An execution an earlier prompt left running.
         self.running = running
         self._stops_cleanly = stops_cleanly
@@ -81,12 +85,15 @@ class FakeClient:
                 raise SSEInactivityTimeoutError("no data")
             if self._then == "hang":
                 await asyncio.Event().wait()
+            if self._then == "transport":
+                raise httpx.ReadError("connection reset")
 
         yield iterate()
 
-    async def post_prompt(self, session_id: str, body: dict[str, Any]) -> None:
+    async def post_prompt(self, session_id: str, body: dict[str, Any]) -> str | None:
         self.calls.append("prompt")
         self.prompts.append(body)
+        return self._admitted_id
 
     async def session_active(self, session_id: str) -> bool:
         return self.running
@@ -203,7 +210,62 @@ async def test_subagent_activity_is_attributed_to_its_task_call():
     assert {e["childSessionId"] for e in child_steps} == {child}
     assert {e["taskCallId"] for e in child_steps} == {tasks[0]["callId"]}
     # Child text is never forwarded as the parent's reply.
-    assert all(not e.get("isSubtask") for e in of_type(events, "token"))
+    assert [e["content"] for e in of_type(events, "token")] == ["DONE"]
+
+
+def child_tool_events(child: str, call_id: str, *, failed: bool) -> list[dict[str, Any]]:
+    """A subagent's own tool call, as OpenCode 2.2.5 emits it."""
+    message = {"assistantMessageID": "msg_child_step"}
+    ending = (
+        {"type": "session.tool.failed", "data": {"error": {"message": "boom"}}}
+        if failed
+        else {"type": "session.tool.success", "data": {"content": []}}
+    )
+    return [
+        {"type": event["type"], "data": {"sessionID": child, "id": call_id, **message, **data}}
+        for event, data in (
+            ({"type": "session.tool.input.started"}, {"name": "bash"}),
+            ({"type": "session.tool.input.delta"}, {"delta": "{}"}),
+            ({"type": "session.tool.input.ended"}, {"text": "{}"}),
+            ({"type": "session.tool.called"}, {"input": {"command": "false"}}),
+            (ending, ending["data"]),
+        )
+    ]
+
+
+async def test_a_subagent_tool_failure_keeps_its_error():
+    fixture = recorded("subagent")
+    child = next(e["data"]["sessionID"] for e in fixture if e["data"].get("parentID"))
+    ended = next(
+        i
+        for i, e in enumerate(fixture)
+        if e["type"] == "session.step.ended" and e["data"]["sessionID"] == child
+    )
+    fixture[ended:ended] = child_tool_events(child, "call_child", failed=True)
+    events = await run(make_stream(FakeClient(fixture)), root_session(fixture))
+    calls = [e for e in of_type(events, "tool_call") if e["callId"] == "call_child"]
+    assert [(e["status"], e["output"]) for e in calls] == [("running", ""), ("error", "boom")]
+
+
+async def test_a_resumed_subagent_is_attributed_to_the_resuming_call():
+    fixture = recorded("subagent")
+    parent = root_session(fixture)
+    first = next(e["data"]["id"] for e in fixture if e["type"] == "session.tool.input.started")
+    call_events = [
+        e for e in fixture if e["type"].startswith("session.tool.") and e["data"].get("id") == first
+    ]
+    # The parent continues the same child with a second task call.
+    second = [{"type": e["type"], "data": {**e["data"], "id": "call_again"}} for e in call_events]
+    done = next(
+        i
+        for i, e in enumerate(fixture)
+        if e["type"] == "session.step.ended" and e["data"]["sessionID"] == parent
+    )
+    fixture[done:done] = second
+    events = await run(make_stream(FakeClient(fixture)), parent)
+    again = [e for e in of_type(events, "tool_call") if e["callId"] == "call_again"]
+    assert again[-1]["status"] == "completed"
+    assert again[-1]["childSessionId"]
 
 
 async def test_oi_mcp_tools_drop_their_server_prefix():
@@ -273,6 +335,30 @@ async def test_other_sessions_events_are_ignored():
     events = await run(make_stream(FakeClient(interleaved)), root_session(shell))
     assert not of_type(events, "error")
     assert of_type(events, "token")[-1]["content"] == "done"
+
+
+async def test_a_stream_lost_before_the_inbox_event_recovers_the_reply():
+    fixture = recorded("shell_and_text")
+    started = next(i for i, e in enumerate(fixture) if e["type"] == "session.inbox.enqueued")
+    newest_first = [
+        {"id": "msg_b", "type": "assistant", "content": [{"type": "text", "text": "answer"}]},
+        {"id": "msg_user", "type": "user", "text": "hi"},
+    ]
+    client = FakeClient(fixture[:started], messages=newest_first, admitted_id="msg_user")
+    events: list[dict] = []
+    with pytest.raises(SSEConnectionError):
+        async for event in make_stream(client).stream_prompt(
+            opencode_session_id=root_session(fixture), message_id="cp-msg", content="hi"
+        ):
+            events.append(event)
+    assert [e["content"] for e in of_type(events, "token")] == ["answer"]
+
+
+async def test_losing_the_stream_while_waiting_for_a_title_keeps_the_outcome():
+    fixture = [e for e in recorded("shell_and_text") if e["type"] != "session.renamed"]
+    events = await run(make_stream(FakeClient(fixture, then="transport")), root_session(fixture))
+    assert of_type(events, "token")
+    assert not of_type(events, "error")
 
 
 async def test_lost_stream_recovers_this_prompts_reply():
@@ -482,4 +568,21 @@ async def test_a_prompt_is_not_sent_while_the_previous_execution_runs():
     client = FakeClient(events, running=True, stops_cleanly=False)
     with pytest.raises(RuntimeError, match="did not stop"):
         await run(make_stream(client), root_session(events))
+    assert client.prompts == []
+
+
+async def test_a_hung_interrupt_of_the_previous_execution_spends_only_the_cleanup_budget():
+    events = recorded("shell_and_text")
+    client = FakeClient(events, running=True)
+
+    async def hung_stop(session_id: str | None, *, reason: str) -> bool:
+        await asyncio.Event().wait()
+        return True
+
+    client.request_stop = hung_stop  # type: ignore[method-assign]
+    stream = make_stream(client)
+    stream._prompt_cleanup_timeout_seconds = 0.05
+    with pytest.raises(RuntimeError, match="did not stop"):
+        async with asyncio.timeout(2):
+            await run(stream, root_session(events))
     assert client.prompts == []
