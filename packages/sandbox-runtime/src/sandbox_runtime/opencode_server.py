@@ -9,6 +9,7 @@ import sys
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
+from urllib.parse import quote
 
 import httpx
 
@@ -202,28 +203,46 @@ class OpenCodeServer:
         ]
 
     async def _seed_managed_credentials(self, client: httpx.AsyncClient) -> None:
-        """Give each managed subscription an expired placeholder credential.
+        """Sync OpenCode's credentials with the control-plane-managed subscriptions.
 
-        OpenCode treats the credential like a signed-in subscription and
-        refreshes it before use; ``provider-auth.js`` replaces that refresh
-        with the control plane's token broker. A restored snapshot already has
-        the credential in OpenCode's database, so existing ones are kept.
+        Each managed subscription gets an expired placeholder credential.
+        OpenCode treats it like a signed-in subscription and refreshes it
+        before use; ``provider-auth.js`` replaces that refresh with the control
+        plane's token broker. A restored snapshot already has the credential in
+        OpenCode's database, so existing ones are kept.
+
+        Placeholders for subscriptions the control plane no longer manages are
+        removed: one carried by a restored snapshot would otherwise shadow the
+        API key that replaced the subscription.
         """
         providers = self._managed_oauth_providers()
-        if not providers:
-            return
+        managed = {provider for provider, _method in providers}
         api = f"http://localhost:{OPENCODE_PORT}/api"
         # A failure only costs that subscription's models, so the session still boots.
         try:
             listing = await client.get(f"{api}/credential")
             listing.raise_for_status()
-            existing = {entry.get("integrationID") for entry in listing.json().get("data", [])}
-        except httpx.HTTPError as error:
-            self.record_boot_warning(
-                scope="managed_oauth",
-                message=f"Could not list OpenCode credentials; subscriptions are unavailable: {error}",
-            )
+            entries = [
+                entry for entry in listing.json().get("data") or [] if isinstance(entry, dict)
+            ]
+        except (httpx.HTTPError, ValueError) as error:
+            if providers:
+                self.record_boot_warning(
+                    scope="managed_oauth",
+                    message=f"Could not list OpenCode credentials; subscriptions are unavailable: {error}",
+                )
+            else:
+                self.log.warn("managed_oauth.list_error", exc=error)
             return
+        for entry in entries:
+            value = entry.get("value")
+            if (
+                entry.get("integrationID") not in managed
+                and isinstance(value, dict)
+                and value.get("refresh") == MANAGED_REFRESH_PLACEHOLDER
+            ):
+                await self._remove_stale_credential(client, api, entry)
+        existing = {entry.get("integrationID") for entry in entries}
         seeded = []
         for provider, method in providers:
             if provider not in existing:
@@ -250,7 +269,25 @@ class OpenCodeServer:
                     )
                     continue
             seeded.append(provider)
-        self.log.info("managed_oauth.setup", providers=seeded)
+        if providers:
+            self.log.info("managed_oauth.setup", providers=seeded)
+
+    async def _remove_stale_credential(
+        self, client: httpx.AsyncClient, api: str, entry: Mapping[str, Any]
+    ) -> None:
+        provider = entry.get("integrationID")
+        try:
+            response = await client.delete(
+                f"{api}/credential/{quote(str(entry.get('id')), safe='')}"
+            )
+            response.raise_for_status()
+        except httpx.HTTPError as error:
+            self.record_boot_warning(
+                scope="managed_oauth",
+                message=f"Could not remove the stale {provider} subscription credential: {error}",
+            )
+            return
+        self.log.info("managed_oauth.stale_removed", provider=provider)
 
     def _resolve_mcp_servers(self) -> list[Mapping[str, Any]]:
         """Resolve MCP servers from session config."""

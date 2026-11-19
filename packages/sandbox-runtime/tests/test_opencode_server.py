@@ -184,11 +184,99 @@ async def test_no_credentials_are_seeded_without_a_managed_subscription(tmp_path
     for marker, _provider, _method in opencode_server.MANAGED_OAUTH_PROVIDERS:
         monkeypatch.delenv(marker, raising=False)
 
-    def handler(_request: httpx.Request) -> httpx.Response:
-        raise AssertionError("no request expected")
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        return httpx.Response(200, json={"data": []})
 
+    server = make_server(tmp_path)
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        await make_server(tmp_path)._seed_managed_credentials(client)
+        await server._seed_managed_credentials(client)
+    server.record_boot_warning.assert_not_called()
+
+
+def _placeholder(provider: str, credential_id: str) -> dict:
+    return {
+        "id": credential_id,
+        "integrationID": provider,
+        "label": "Open-Inspect managed subscription",
+        "active": True,
+        "value": {
+            "type": "oauth",
+            "methodID": "chatgpt-browser",
+            "refresh": opencode_server.MANAGED_REFRESH_PLACEHOLDER,
+            "access": "",
+            "expires": 0,
+        },
+    }
+
+
+async def test_a_restored_placeholder_for_an_unmanaged_subscription_is_removed(
+    tmp_path, monkeypatch
+):
+    """A snapshot-carried placeholder must not shadow the API key that replaced it."""
+    for marker, _provider, _method in opencode_server.MANAGED_OAUTH_PROVIDERS:
+        monkeypatch.delenv(marker, raising=False)
+    monkeypatch.setenv("XAI_OAUTH_MANAGED", "1")
+    deleted = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(
+                200,
+                json={
+                    "data": [
+                        _placeholder("openai", "cred_openai"),
+                        _placeholder("xai", "cred_xai"),
+                        {
+                            "id": "cred_user",
+                            "integrationID": "anthropic",
+                            "label": "",
+                            "active": True,
+                            "value": {"type": "key", "key": "user-owned"},
+                        },
+                    ]
+                },
+            )
+        assert request.method == "DELETE"
+        deleted.append(request.url.path)
+        return httpx.Response(204)
+
+    server = make_server(tmp_path)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        await server._seed_managed_credentials(client)
+    assert deleted == ["/api/credential/cred_openai"]
+    server.record_boot_warning.assert_not_called()
+
+
+async def test_a_failed_stale_removal_is_a_boot_warning(tmp_path, monkeypatch):
+    for marker, _provider, _method in opencode_server.MANAGED_OAUTH_PROVIDERS:
+        monkeypatch.delenv(marker, raising=False)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json={"data": [_placeholder("openai", "cred_openai")]})
+        return httpx.Response(500, text="boom")
+
+    server = make_server(tmp_path)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        await server._seed_managed_credentials(client)
+    server.record_boot_warning.assert_called_once()
+    assert "stale openai" in server.record_boot_warning.call_args.kwargs["message"]
+
+
+async def test_an_unreadable_list_without_a_managed_subscription_is_not_a_boot_warning(
+    tmp_path, monkeypatch
+):
+    for marker, _provider, _method in opencode_server.MANAGED_OAUTH_PROVIDERS:
+        monkeypatch.delenv(marker, raising=False)
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, json={"code": "service_starting"})
+
+    server = make_server(tmp_path)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        await server._seed_managed_credentials(client)
+    server.record_boot_warning.assert_not_called()
 
 
 async def test_a_failed_credential_is_a_boot_warning_and_the_rest_are_seeded(tmp_path, monkeypatch):
